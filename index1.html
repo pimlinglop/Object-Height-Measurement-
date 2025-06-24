@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>วัดความสูงด้วย AI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- โหลด TensorFlow.js และ MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding: 20px;
+      background: #f0f0f0;
+    }
+    video, canvas {
+      width: 100%;
+      max-width: 400px;
+      margin-bottom: 10px;
+      border-radius: 10px;
+    }
+    #heightResult {
+      font-size: 18px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h2>AI วัดความสูง</h2>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <p id="heightResult">เริ่มต้นระบบ...</p>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const result = document.getElementById('heightResult');
+
+    async function init() {
+      result.innerText = "กำลังโหลดโมเดล...";
+      await tf.setBackend('webgl');
+      await tf.ready();
+
+      const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+
+      result.innerText = "กำลังเปิดกล้อง...";
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false
+      });
+      video.srcObject = stream;
+
+      video.onloadedmetadata = () => {
+        video.play();
+        result.innerText = "กำลังตรวจจับ...";
+        detectPose(detector);
+      };
+    }
+
+    async function detectPose(detector) {
+      setInterval(async () => {
+        const poses = await detector.estimatePoses(video);
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        if (poses.length > 0) {
+          const keypoints = poses[0].keypoints;
+          const nose = keypoints.find(p => p.name === 'nose');
+          const ankle = keypoints.find(p => p.name === 'left_ankle') || keypoints.find(p => p.name === 'right_ankle');
+
+          if (nose && ankle && nose.score > 0.5 && ankle.score > 0.5) {
+            const distance = Math.abs(nose.y - ankle.y);
+            const pixelsPerCm = 4;
+            const height = Math.round(distance / pixelsPerCm);
+
+            result.innerText = `ความสูงโดยประมาณ: ${height} ซม.`;
+
+            // วาดจุด
+            ctx.fillStyle = "red";
+            ctx.beginPath();
+            ctx.arc(nose.x, nose.y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+
+            ctx.fillStyle = "blue";
+            ctx.beginPath();
+            ctx.arc(ankle.x, ankle.y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+          } else {
+            result.innerText = "กรุณายืนให้เห็นทั้งหัวและเท้า";
+          }
+        }
+      }, 1000);
+    }
+
+    init();
+  </script>
+</body>
+</html>
